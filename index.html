@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Видео плеер</title>
+<style>
+  :root{
+    --bg:#000;
+    --panel:#111214cc;
+    --accent:#fe2c55;
+    --accent2:#25f4ee;
+    --text:#fff;
+    --text-dim:#e6e6e6cc;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:#000;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;
+  }
+
+  .stage{
+    position:relative;
+    width:100vw;
+    height:100vh;
+    height:100dvh;
+    max-width:480px;
+    margin:0 auto;
+    background:#000;
+    overflow:hidden;
+  }
+
+  video{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    background:#000;
+  }
+
+  /* затемнение снизу для читаемости текста */
+  .stage::after{
+    content:"";
+    position:absolute;
+    left:0; right:0; bottom:0;
+    height:45%;
+    background:linear-gradient(to top, rgba(0,0,0,.75), rgba(0,0,0,0));
+    pointer-events:none;
+  }
+
+  /* центральная play/pause иконка */
+  .play-overlay{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:5;
+    pointer-events:none;
+  }
+  .play-overlay svg{
+    width:74px; height:74px;
+    filter:drop-shadow(0 4px 18px rgba(0,0,0,.5));
+    opacity:0;
+    transform:scale(.8);
+    transition:opacity .18s ease, transform .18s ease;
+  }
+  .play-overlay.show svg{
+    opacity:1;
+    transform:scale(1);
+  }
+
+  /* верхняя строка — заголовок звука (необязательно, тонкая деталь как в референсе) */
+  .top-caption{
+    position:absolute;
+    top:18px; left:16px; right:90px;
+    z-index:6;
+    color:var(--text);
+    font-size:19px;
+    font-weight:700;
+    line-height:1.25;
+    text-shadow:0 1px 6px rgba(0,0,0,.5);
+    pointer-events:none;
+  }
+
+  /* правая колонка действий */
+  .actions{
+    position:absolute;
+    right:10px;
+    bottom:110px;
+    z-index:6;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:20px;
+  }
+  .avatar-wrap{
+    position:relative;
+    width:50px; height:50px;
+    margin-bottom:4px;
+  }
+  .avatar-wrap img{
+    width:50px; height:50px;
+    border-radius:50%;
+    object-fit:cover;
+    border:2px solid #fff;
+  }
+  .avatar-plus{
+    position:absolute;
+    left:50%; bottom:-9px;
+    transform:translateX(-50%);
+    width:20px; height:20px;
+    border-radius:50%;
+    background:var(--accent);
+    display:flex; align-items:center; justify-content:center;
+    border:2px solid #000;
+  }
+  .avatar-plus svg{width:11px; height:11px;}
+
+  .action-btn{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:5px;
+    background:none;
+    border:none;
+    cursor:pointer;
+    color:var(--text);
+    font-size:12px;
+    font-weight:600;
+    text-shadow:0 1px 4px rgba(0,0,0,.4);
+    -webkit-user-select:none;
+    user-select:none;
+    padding:0;
+  }
+  .action-btn svg{
+    width:34px; height:34px;
+    display:block;
+    transition:transform .18s ease;
+    filter:drop-shadow(0 1px 3px rgba(0,0,0,.4));
+  }
+  .action-btn.liked svg{
+    animation:pop .35s ease;
+  }
+  @keyframes pop{
+    0%{transform:scale(1);}
+    35%{transform:scale(1.35);}
+    100%{transform:scale(1);}
+  }
+  .action-btn:active svg{ transform:scale(.85); }
+
+  .spin{
+    animation:spin 3.2s linear infinite;
+  }
+  @keyframes spin{
+    from{transform:rotate(0deg);}
+    to{transform:rotate(360deg);}
+  }
+
+  /* нижний блок с описанием */
+  .meta{
+    position:absolute;
+    left:16px;
+    right:80px;
+    bottom:26px;
+    z-index:6;
+    color:var(--text);
+    pointer-events:none;
+  }
+  .meta .username{
+    font-size:17px;
+    font-weight:700;
+    margin:0 0 8px 0;
+    text-shadow:0 1px 6px rgba(0,0,0,.5);
+  }
+  .meta .desc{
+    font-size:14.5px;
+    line-height:1.35;
+    margin:0 0 10px 0;
+    text-shadow:0 1px 6px rgba(0,0,0,.5);
+    color:var(--text-dim);
+  }
+  .meta .sound{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-size:13.5px;
+    font-weight:500;
+    text-shadow:0 1px 6px rgba(0,0,0,.5);
+  }
+  .meta .sound svg{width:14px; height:14px;}
+
+  /* прогресс-бар снизу */
+  .progress-track{
+    position:absolute;
+    left:0; right:0; bottom:0;
+    height:3px;
+    background:rgba(255,255,255,.25);
+    z-index:7;
+  }
+  .progress-fill{
+    height:100%;
+    width:0%;
+    background:#fff;
+  }
+
+  /* подсказка при первом открытии (звук выключен) */
+  .mute-badge{
+    position:absolute;
+    top:18px; right:16px;
+    z-index:6;
+    width:34px; height:34px;
+    border-radius:50%;
+    background:rgba(0,0,0,.35);
+    display:flex; align-items:center; justify-content:center;
+    border:none;
+    cursor:pointer;
+  }
+  .mute-badge svg{width:17px; height:17px;}
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+
+  <video
+    id="video"
+    src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+    poster=""
+    loop
+    playsinline
+    muted
+    autoplay
+  ></video>
+
+  <div class="play-overlay" id="playOverlay">
+    <svg id="playIcon" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+  </div>
+
+  <button class="mute-badge" id="muteBtn" title="Звук">
+    <svg id="muteIcon" viewBox="0 0 24 24" fill="#fff"><path d="M16.5 12A4.5 4.5 0 0 0 14 8v8a4.47 4.47 0 0 0 2.5-4zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77zM3 9v6h4l5 5V4L7 9H3z"/></svg>
+  </button>
+
+  <div class="top-caption">не отправляешь мне фотки из душа....</div>
+
+  <div class="actions">
+    <div class="avatar-wrap">
+      <img src="https://i.pravatar.cc/100?img=13" alt="avatar">
+      <div class="avatar-plus">
+        <svg viewBox="0 0 24 24" fill="#fff"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
+      </div>
+    </div>
+
+    <button class="action-btn" id="likeBtn">
+      <svg id="likeIcon" viewBox="0 0 24 24" fill="#fff">
+        <path d="M12 21s-6.7-4.3-9.3-8.1C1 10.1 1.6 6.6 4.6 5c2.2-1.2 4.8-.5 6.4 1.4L12 7.6l1-1.2c1.6-1.9 4.2-2.6 6.4-1.4 3 1.6 3.6 5.1 1.9 7.9C18.7 16.7 12 21 12 21z"/>
+      </svg>
+      <span id="likeCount">47.5K</span>
+    </button>
+
+    <button class="action-btn" id="commentBtn">
+      <svg viewBox="0 0 24 24" fill="#fff">
+        <path d="M12 2C6.5 2 2 5.8 2 10.5c0 2.6 1.4 4.9 3.6 6.5-.2 1.4-.8 2.9-1.6 4 1.7-.2 3.4-.9 4.7-1.9 1.1.3 2.2.4 3.3.4 5.5 0 10-3.8 10-8.5S17.5 2 12 2z"/>
+      </svg>
+      <span id="commentCount">296</span>
+    </button>
+
+    <button class="action-btn" id="shareBtn">
+      <svg viewBox="0 0 24 24" fill="#fff">
+        <path d="M21 12L14 5v4C7 9 4 14 3 19c2.5-3.5 6-5.1 11-5.1V18l7-6z"/>
+      </svg>
+      <span id="shareCount">48.9K</span>
+    </button>
+
+    <button class="action-btn">
+      <svg class="spin" viewBox="0 0 24 24" fill="#fff">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="#fff" stroke-width="1.6"/>
+        <circle cx="12" cy="12" r="2.4" fill="#fff"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="meta">
+    <p class="username">Artyom Mers</p>
+    <p class="desc">Оригинальное видео</p>
+    <div class="sound">
+      <svg viewBox="0 0 24 24" fill="#fff"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
+      <span>оригинальный звук</span>
+    </div>
+  </div>
+
+  <div class="progress-track">
+    <div class="progress-fill" id="progressFill"></div>
+  </div>
+
+</div>
+
+<script>
+  const video = document.getElementById('video');
+  const stage = document.getElementById('stage');
+  const playOverlay = document.getElementById('playOverlay');
+  const playIcon = document.getElementById('playIcon');
+  const muteBtn = document.getElementById('muteBtn');
+  const muteIcon = document.getElementById('muteIcon');
+  const progressFill = document.getElementById('progressFill');
+  const likeBtn = document.getElementById('likeBtn');
+  const likeIcon = document.getElementById('likeIcon');
+  const likeCount = document.getElementById('likeCount');
+  const commentCount = document.getElementById('commentCount');
+  const shareCount = document.getElementById('shareCount');
+
+  // ---- play / pause по тапу на видео ----
+  function togglePlay(){
+    if(video.paused){
+      video.play();
+      playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>'; // play icon (для показа при паузе)
+    } else {
+      video.pause();
+    }
+    flashOverlay();
+  }
+
+  function flashOverlay(){
+    // показываем нужную иконку: если после клика видео стоит на паузе — показываем play,
+    // если играет — показываем паузу на секунду, потом прячем
+    playIcon.innerHTML = video.paused
+      ? '<path d="M8 5v14l11-7z"/>'
+      : '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+    playOverlay.classList.add('show');
+    clearTimeout(flashOverlay._t);
+    flashOverlay._t = setTimeout(()=> playOverlay.classList.remove('show'), 550);
+  }
+
+  stage.addEventListener('click', (e)=>{
+    // не срабатывает если клик был по кнопкам справа
+    if(e.target.closest('.actions') || e.target.closest('.mute-badge')) return;
+    togglePlay();
+  });
+
+  // ---- звук ----
+  muteBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    video.muted = !video.muted;
+    muteIcon.innerHTML = video.muted
+      ? '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.42.05-.63zM19 12c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>'
+      : '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.47 4.47 0 0 0 2.5-4zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
+  });
+
+  // ---- прогресс ----
+  video.addEventListener('timeupdate', ()=>{
+    if(video.duration){
+      progressFill.style.width = (video.currentTime / video.duration * 100) + '%';
+    }
+  });
+
+  // клик/тап по прогресс-бару — перемотка
+  document.querySelector('.progress-track').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    if(video.duration) video.currentTime = ratio * video.duration;
+  });
+
+  // ---- лайк ----
+  let liked = false;
+  let baseLikes = 47500;
+  function formatCount(n){
+    if(n >= 1000000) return (n/1000000).toFixed(1).replace(/\.0$/,'') + 'M';
+    if(n >= 1000) return (n/1000).toFixed(1).replace(/\.0$/,'') + 'K';
+    return String(n);
+  }
+  likeBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    liked = !liked;
+    baseLikes += liked ? 1 : -1;
+    likeCount.textContent = formatCount(baseLikes);
+    likeIcon.setAttribute('fill', liked ? '#fe2c55' : '#fff');
+    likeBtn.classList.remove('liked');
+    void likeBtn.offsetWidth; // reflow для перезапуска анимации
+    if(liked) likeBtn.classList.add('liked');
+  });
+
+  document.getElementById('commentBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    alert('Открыть комментарии — сюда можно подключить свою логику / модальное окно');
+  });
+
+  document.getElementById('shareBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    if(navigator.share){
+      navigator.share({title: document.title, url: location.href}).catch(()=>{});
+    } else {
+      alert('Поделиться — здесь можно открыть свою модалку "Отправить"');
+    }
+  });
+
+  likeCount.textContent = formatCount(baseLikes);
+</script>
+
+</body>
+</html>
